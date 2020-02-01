@@ -21,8 +21,8 @@ app.use(bodyParser.urlencoded({extended: true}))
 
 const db = mysql.createConnection({
   host: 'localhost',
-  user: 'root',
-  password: 'nr3724fh1q',
+  user: 'kanban',
+  password: 'AEb9NZE6AF7sswA0',
   database: 'kanban'
 }).promise()
 

@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "PORT=46991 node index.js",
     "dev": "nodemon index.js"
   },
   "author": "kasheftin",
