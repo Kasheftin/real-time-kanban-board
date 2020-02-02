@@ -4,45 +4,19 @@
       Kanban Board Test Front End
     </v-app-bar>
     <v-content>
-      <v-container>
-        <v-layout>
-          {{ tasks }}
-        </v-layout>
+      <v-container fill-height>
+        <board />
       </v-container>
     </v-content>
+    <snack />
   </v-app>
 </template>
 
 <script>
+import Snack from '~/components/utils/Snack'
+import Board from '~/components/main/Board'
 
 export default {
-  data () {
-    return {
-      rows: 4
-    }
-  },
-  computed: {
-    maxDt () { return this.$store.getters['kanban/maxDt'] },
-    tasks () { return this.$store.state.kanban.tasks }
-  },
-  created () {
-    this.socket = new WebSocket('ws://kanban.rag.lt/?group=dt')
-    this.socket.onmessage = (e) => {
-      if (!isNaN(e.data) && e.data > this.maxDt) {
-        this.runUpdateQueue()
-      }
-    }
-    this.runUpdateQueue()
-  },
-  methods: {
-    runUpdateQueue () {
-      this._timeout && clearTimeout(this._timeout)
-      this.$store
-        .dispatch('kanban/loadTasks')
-        .then(() => {
-          this._timeout = setTimeout(this.runUpdateQueue, 60000)
-        })
-    }
-  }
+  components: {Snack, Board}
 }
 </script>
