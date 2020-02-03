@@ -140,6 +140,7 @@ export default {
         url: `/tasks/${card.id}/move`,
         data: {
           col: newColumn,
+          updatedAt: card.updated_at,
           beforeId: newIndex ? this.columns[newColumn].tasks[newIndex - 1].id : null
         }
       }).catch((error) => {
@@ -148,7 +149,7 @@ export default {
       })
     },
     editTask (task) {
-      this.taskInstance = _.pick(task, 'id', 'title', 'text')
+      this.taskInstance = {..._.pick(task, 'id', 'title', 'text'), updatedAt: task.updated_at}
       this.editTaskOpened = true
     },
     newTask (col) {
@@ -176,7 +177,10 @@ export default {
       column.tasks.splice(index, 1)
       axios.request({
         method: 'delete',
-        url: `/tasks/${task.id}`
+        url: `/tasks/${task.id}`,
+        data: {
+          updatedAt: task.updated_at
+        }
       }).catch((error) => {
         this.handleError(error, {criticalToSnack: true})
         this.buildColumns()
