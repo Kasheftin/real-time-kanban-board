@@ -10,7 +10,12 @@
   "dependencies": {
     "axios": "^0.19.2",
     "core-js": "^3.4.4",
+    "lodash": "^4.17.15",
+    "moment": "^2.24.0",
+    "sortablejs": "^1.10.2",
+    "velocity-animate": "^1.5.2",
     "vue": "^2.6.10",
+    "vue-sweetalert2": "^3.0.1",
     "vuetify": "^2.1.0",
     "vuex": "^3.1.2"
   },
@@ -38,9 +43,15 @@
       "plugin:vue/essential",
       "eslint:recommended"
     ],
-    "rules": {},
+    "rules": {
+      "no-console": 0
+    },
     "parserOptions": {
       "parser": "babel-eslint"
+    },
+    "globals": {
+      "_": true,
+      "moment": true
     }
   },
   "browserslist": [

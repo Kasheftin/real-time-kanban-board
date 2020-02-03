@@ -1,7 +1,8 @@
 import axios from 'axios'
 
 export const state = () => ({
-  tasks: []
+  tasks: [],
+  initDt: 0
 })
 
 export const getters = {
@@ -15,7 +16,7 @@ export const getters = {
 export const mutations = {
   updateTasks (state, newTasks) {
     const byId = state.tasks.reduce((out, task, index) => {
-      out[task.id] = { index, dt: task.updated_at }
+      out[task.id] = {index, dt: task.updated_at}
       return out
     }, {})
     newTasks.forEach((newTask) => {
@@ -27,13 +28,33 @@ export const mutations = {
         state.tasks.push(newTask)
       }
     })
+    state.tasks = state.tasks.sort((t1, t2) => t1.sort - t2.sort)
+  },
+  deleteTasks (state, deletedTasks) {
+    state.tasks = state.tasks.filter(task => !deletedTasks.includes(task.id))
+  },
+  setInitDt (state, dt) {
+    state.initDt = dt
   }
 }
 
 export const actions = {
-  loadTasks ({getters, commit}) {
+  loadTasks ({state, getters, commit}, force) {
+    const dt = force ? 0 : getters.maxDt
+    const params = {dt}
+    if (dt && state.initDt) {
+      params.since = state.initDt
+    }
     return axios
-      .request({url: '/tasks', params: {dt: getters.maxDt}})
-      .then(response => commit('updateTasks', response.data))
+      .request({url: '/tasks', params})
+      .then((response) => {
+        if (!dt) {
+          commit('setInitDt', response.data.dt)
+        }
+        commit('updateTasks', response.data.tasks)
+        if (response.data.deletedTasks.length) {
+          commit('deleteTasks', response.data.deletedTasks)
+        }
+      })
   }
 }
