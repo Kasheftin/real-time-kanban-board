@@ -20,3 +20,9 @@ export default {
   components: {Snack, Board}
 }
 </script>
+
+<style lang="scss">
+html {
+  overflow-y: hidden !important;
+}
+</style>

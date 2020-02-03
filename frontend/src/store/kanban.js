@@ -51,6 +51,9 @@ export const actions = {
         if (!dt) {
           commit('setInitDt', response.data.dt)
         }
+        if (response.data.token) {
+          axios.defaults.headers.common['x-access-token'] = response.data.token
+        }
         commit('updateTasks', response.data.tasks)
         if (response.data.deletedTasks.length) {
           commit('deleteTasks', response.data.deletedTasks)

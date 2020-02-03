@@ -8,10 +8,22 @@
         class="card-column elevation-1"
       >
         <div :data-id="column.id" class="card-list pa-3">
-          <v-card v-for="(task, index) in column.tasks" :key="task.id" class="mb-3">
+          <v-card
+            v-for="(task, index) in column.tasks"
+            :key="task.id"
+            :color="task.locked ? 'grey lighten-2' : 'white'"
+            :class="{'locked': task.locked}"
+            class="mb-3"
+          >
             <v-card-title>{{ task.title }}</v-card-title>
             <v-card-text>{{ task.text }}</v-card-text>
-            <v-card-actions>
+            <v-card-actions v-if="task.locked">
+              <v-spacer />
+              <v-btn icon @click="openUnlockRequest(task)">
+                <v-icon>mdi-lock</v-icon>
+              </v-btn>
+            </v-card-actions>
+            <v-card-actions v-else>
               <v-spacer />
               <v-btn icon @click="editTask(task)">
                 <v-icon>mdi-pencil</v-icon>
@@ -55,6 +67,41 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+    <v-dialog v-model="unlockRequestOpened" width="400">
+      <v-card>
+        <v-card-text>
+          <div v-if="unlockRequestTarget.locking_requested" class="body-1 pt-6">
+            You have asked the owner to give you the edit permission.
+            You are going to get the permission in {{ unlockRequestTimeout }} s.
+          </div>
+          <div v-else class="body-1 pt-6">
+            The task is currently edited by someone else.
+            You can ask the owner to give you the edit permission.
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn text @click="unlockRequestOpened = false">Cancel</v-btn>
+          <v-btn text v-if="!unlockRequestTarget.locking_requested" @click="sendUnlockRequest">Send Unlock Request</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+    <v-dialog v-model="incommingRequestOpened" width="400">
+      <v-card>
+        <v-card-text>
+          <div class="body-1 pt-6">
+            Someone has requested the permission to edit the task you are currently working on.
+            Do you want to cancel your changes and give an access?
+            If you'll not give any answer in {{ incommingRequestTimeout }} seconds, the request will be automatically granted.
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn text @click="denyIncommingUnlockRequest">Deny</v-btn>
+          <v-btn text @click="allowIncommingUnlockRequest">Allow</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-layout>
 </template>
 
@@ -70,19 +117,48 @@ export default {
       columnsCount: 4,
       columns: [],
       editTaskOpened: false,
-      taskInstance: {}
+      taskInstance: {},
+      unlockRequestOpened: false,
+      unlockRequestTargetId: null,
+      unlockRequestTimeout: 0,
+      incommingRequestTargetId: null,
+      incommingRequestOpened: false,
+      incommingRequestTimeout: 0
     }
   },
   computed: {
     maxDt () { return this.$store.getters['kanban/maxDt'] },
     tasks () { return this.$store.state.kanban.tasks },
-    columnsTrigger () { return JSON.stringify(this.tasks.map(task => _.pick(task, 'id', 'col', 'sort', 'updated_at'))) }
+    unlockRequestTarget () { return this.tasks.find(task => task.id === this.unlockRequestTargetId) || {} },
+    columnsTrigger () { return JSON.stringify(this.tasks.map(task => _.pick(task, 'id', 'col', 'sort', 'updated_at'))) },
+    editPermissionRequested () {
+      const task = this.tasks.find(task => task.edit_permission)
+      return task && task.edit_permission_requested_by_someone_else ? task.id : null
+    }
   },
   watch: {
     columnsTrigger: {
       immediate: true,
       handler: 'buildColumns'
-    }
+    },
+    editTaskOpened (value) {
+      if (this.taskInstance.id) {
+        axios.request({
+          method: 'patch',
+          url: `/tasks/${this.taskInstance.id}/${value ? 'lock' : 'unlock'}`
+        }).catch((error) => this.handleError(error, {criticalToSnack: true}))
+      }
+    },
+    unlockRequestOpened (value) {
+      if (this.unlockRequestTarget.id && this.unlockRequestTarget.locking_requested && !value) {
+        this._unlockTimeout && clearTimeout(this._unlockTimeout)
+        axios.request({
+          method: 'patch',
+          url: `/tasks/${this.unlockRequestTarget.id}/cancel_unlock_request`
+        }).catch((error) => this.handleError(error, {criticalToSnack: true}))
+      }
+    },
+    editPermissionRequested: 'runIncommingQueue'
   },
   created () {
     this.socket = new WebSocket('wss://api.kanban.rag.lt/ws/')
@@ -101,12 +177,15 @@ export default {
   },
   beforeDestroy () {
     this._timeout && clearTimeout(this._timeout)
+    this._unlockTimeout && clearTimeout(this._unlockTimeout)
+    this._incommingTimeout && clearTimeout(this._incommingTimeout)
   },
   mounted () {
     this.sortables = this.$refs.table
       .querySelectorAll('.card-list')
       .forEach(column => Sortable.create(column, {
         group: 'columns',
+        filter: '.locked',
         onEnd: this.dragEnd
       }))
   },
@@ -185,6 +264,100 @@ export default {
         this.handleError(error, {criticalToSnack: true})
         this.buildColumns()
       })
+    },
+    openUnlockRequest (task) {
+      this.unlockRequestTargetId = task.id
+      this.unlockRequestOpened = true
+    },
+    sendUnlockRequest () {
+      axios
+        .request({
+          method: 'patch',
+          url: `/tasks/${this.unlockRequestTarget.id}/send_unlock_request`
+        })
+        .then(() => {
+          const run = (n) => {
+            this.unlockRequestTimeout = n
+            if (n) {
+              this._unlockTimeout = setTimeout(() => run(n - 1), 1000)
+            } else {
+              this.tryUnlock()
+            }
+            if (n < 5) {
+              this.checkIfUnlockAnswerReceived()
+            }
+          }
+          run(5)
+        })
+        .catch(error => this.handleError(error, {criticalToSnack: true}))
+    },
+    checkIfUnlockAnswerReceived () {
+      if (!this.unlockRequestTarget.id) { return false }
+      if (!this.unlockRequestTarget.locked) {
+        this._unlockTimeout && clearTimeout(this._unlockTimeout)
+        this.editTask(this.unlockRequestTarget)
+        this.unlockRequestOpened = false
+        this.unlockRequestTargetId = null
+        this.$snack({type: 'success', text: 'Permission Granted'})
+      } else if (!this.unlockRequestTarget.locking_requested) {
+        this._unlockTimeout && clearTimeout(this._unlockTimeout)
+        this.unlockRequestOpened = false
+        this.unlockRequestTargetId = null
+        this.$snack({type: 'error', text: 'Permission Denied'})
+      }
+    },
+    tryUnlock () {
+      axios
+        .request({
+          method: 'patch',
+          url: `/tasks/${this.unlockRequestTarget.id}/try_unlock`
+        })
+        .then(() => {
+          this.editTask(this.unlockRequestTarget)
+          this.unlockRequestOpened = false
+          this.unlockRequestTargetId = null
+        })
+        .catch(error => this.handleError(error, {criticalToSnack: true}))
+    },
+    runIncommingQueue (id) {
+      this._incommingTimeout && clearTimeout(this._incommingTimeout)
+      this.incommingRequestTargetId = id
+      this.incommingRequestOpened = !!id
+      const task = this.tasks.find(task => task.edit_permission)
+      if (!task) {
+        // The request was granted by a timeout;
+        this.editTaskOpened = false
+      }
+      if (this.incommingRequestOpened) {
+        const run = (n) => {
+          this.incommingRequestTimeout = n
+          this._incommingTimeout = setTimeout(() => run(n - 1), 1000)
+        }
+        run(5)
+      }
+    },
+    denyIncommingUnlockRequest () {
+      axios
+        .request({
+          method: 'patch',
+          url: `/tasks/${this.incommingRequestTargetId}/deny_unlock`
+        })
+        .then(() => {
+          this.incommingRequestOpened = false
+        })
+        .catch(error => this.handleError(error, {criticalToSnack: true}))
+    },
+    allowIncommingUnlockRequest () {
+      axios
+        .request({
+          method: 'patch',
+          url: `/tasks/${this.incommingRequestTargetId}/allow_unlock`
+        })
+        .then(() => {
+          this.editTaskOpened = false
+          this.incommingRequestOpened = false
+        })
+        .catch(error => this.handleError(error, {criticalToSnack: true}))
     }
   }
 }
