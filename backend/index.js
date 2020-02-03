@@ -8,6 +8,10 @@ CREATE TABLE `tasks` (
   `created_at` BIGINT NOT NULL,
   `updated_at` BIGINT NOT NULL,
   `deleted_at` BIGINT NOT NULL DEFAULT '0',
+  `locked_by` VARCHAR(255) DEFAULT '',
+  `locked_at` BIGINT NOT NULL DEFAULT '0',
+  `locking_switch_requested_by` VARCHAR(255) DEFAULT '',
+  `locking_switch_requested_at` BIGINT NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`), INDEX(`updated_at`), INDEX(`sort`), INDEX(`deleted_at`)) ENGINE = InnoDB;
 */
 
@@ -17,6 +21,9 @@ const bodyParser = require('body-parser')
 const mysql = require('mysql2')
 const WebSocket = require('ws')
 const wss = new WebSocket.Server({port: process.env.SOCKET_PORT})
+const uniqid = require('uniqid')
+const _ = require('lodash')
+const StatusError = require('./StatusError')
 
 wss.on('connection', (ws, req) => {
   const ip = (req.headers['x-forwarded-for'] || '').split(/\s*,\s*/)[0]
@@ -34,21 +41,48 @@ const db = mysql.createConnection({
   database: 'kanban'
 }).promise()
 
+const checkIfTaskIsEditable = async (id, req) => {
+  const [[task]] = await db.query('select * from tasks where id=? and deleted_at=0', [id])
+  if (!task) {
+    throw new StatusError('Task Not Found', 404)
+  }
+  if (task.locked_by && task.locked_by !== req.headers['x-access-token']) {
+    throw new StatusError('The task is currently edited by someone else', 400)
+  }
+  return task
+}
+
+const wssSendDt = (dt) => {
+  const wssMessage = JSON.stringify({type: 'dt', dt})
+  wss.clients.forEach((ws) => ws.send(wssMessage))
+}
+
 app.get('/tasks', async (req, res) => {
+  const token = req.headers['x-access-token'] || uniqid()
   const dt = (new Date).getTime()
-  const [tasks] = await db.query('select * from tasks where updated_at>? and deleted_at=0 order by sort', [req.query.dt || 0])
+
+  const result = await db.query('select * from tasks where updated_at>? and deleted_at=0 order by sort', [req.query.dt || 0])
+  const tasks = result[0].map(item => ({
+    ..._.omit(item, 'locked_by', 'locking_switch_requested_by'),
+    locked: !!(item.locked_by && item.locked_by !== token),
+    locking_requested: item.locking_switch_requested_by === token,
+    edit_permission: item.locked_by === token,
+    edit_permission_requested_by_someone_else: item.locked_by === token && !!item.locking_switch_requested_by
+  }))
+
   let deletedTasks = []
   if (req.query.since) {
     const rows = await db.query('select id from tasks where deleted_at>?', [req.query.since])
     deletedTasks = rows[0].map(item => item.id)
   }
-  res.send({tasks, dt, deletedTasks})
+
+  res.send({tasks, dt, token, deletedTasks})
 })
 
 app.post('/tasks', async (req, res) => {
   try {
     if (!req.body.title || !req.body.text) {
-      return res.status(400).send({error: 'Title and Text fields must be filled'})
+      throw new StatusError('Title and Text fields must be filled', 400)
     }
     const dt = (new Date).getTime()
     const [result] = await db.query(
@@ -56,76 +90,48 @@ app.post('/tasks', async (req, res) => {
       [req.body.title, req.body.text, req.body.col, dt, dt]
     )
     if (!result.insertId) {
-      console.log(result)
-      throw new Error('Failed to create new task in DB')
+      throw new StatusError('Failed to create new task in DB', 500)
     }
     await db.query('update tasks set sort=? where id=?', [result.insertId * 1000, result.insertId])
-    const wssMessage = JSON.stringify({type: 'dt', dt})
-    wss.clients.forEach((ws) => ws.send(wssMessage))
+    wssSendDt(dt)
     res.send()
   } catch (error) {
     console.error(error)
-    res.status(500).send({error: error.message})
+    res.status(error.status || 500).send({error: error.message})
   }
 })
 
 app.patch('/tasks/:id', async (req, res) => {
   try {
     if (!req.body.title || !req.body.text) {
-      return res.status(400).send({error: 'Title and Text fields must be filled'})
+      throw new StatusError('Title and Text fields must be filled', 400)
     }
-    const [[task]] = await db.query('select id,updated_at from tasks where id=? and deleted_at=0', [req.params.id])
-    if (!task) {
-      return res.status(404).send()
-    }
-    if (task.updated_at !== req.body.updatedAt) {
-      return res.status(400).send({error: 'You are trying to update not a recent version of this task'})
-    }
+    const task = await checkIfTaskIsEditable(req.params.id, req)
     const dt = (new Date).getTime()
-
-    await db.query(`
-      update tasks set title=?,text=?,updated_at=?
-      where id=?
-    `, [req.body.title, req.body.text, dt, req.params.id])
-    const wssMessage = JSON.stringify({type: 'dt', dt})
-    wss.clients.forEach((ws) => ws.send(wssMessage))
+    await db.query('update tasks set title=?,text=?,updated_at=? where id=?', [req.body.title, req.body.text, dt, task.id])
+    wssSendDt(dt)
     res.send()
   } catch (error) {
     console.error(error)
-    res.status(500).send({error: error.message})
+    res.status(error.status || 500).send({error: error.message})
   }
 })
 
 app.delete('/tasks/:id', async (req, res) => {
   try {
-    const [[task]] = await db.query('select id,updated_at from tasks where id=? and deleted_at=0', [req.params.id])
-    if (!task) {
-      return res.status(404).send()
-    }
-    if (task.updated_at !== req.body.updatedAt) {
-      return res.status(400).send({error: 'You are trying to update not a recent version of this task'})
-    }
+    const task = await checkIfTaskIsEditable(req.params.id, req)
     const dt = (new Date).getTime()
-
     await db.query('update tasks set updated_at=?,deleted_at=? where id=?', [dt, dt, req.params.id])
-    const wssMessage = JSON.stringify({type: 'dt', dt})
-    wss.clients.forEach((ws) => ws.send(wssMessage))
+    wssSendDt(dt)
     res.send()
   } catch (error) {
     console.error(error)
-    res.status(500).send({error: error.message})
+    res.status(error.status || 500).send({error: error.message})
   }
 })
 
 app.patch('/tasks/:id/move', async (req, res) => {
-  const [[task]] = await db.query('select id,updated_at from tasks where id=?', [req.params.id])
-  if (!task) {
-    return res.status(404).send()
-  }
-  if (task.updated_at !== req.body.updatedAt) {
-    console.log(task, req.body)
-    return res.status(400).send({error: 'You are trying to update not a recent version of this task'})
-  }
+  const task = await checkIfTaskIsEditable(req.params.id, req)
   const dt = (new Date).getTime()
 
   const alignSort = async () => {
@@ -145,16 +151,14 @@ app.patch('/tasks/:id/move', async (req, res) => {
     const sort = Math.floor((sortMin + sortMax) / 2)
     if (sort === sortMin || sort === sortMax) {
       if (repeat) {
-        console.error('Unable to sort after align')
-        return res.status(500).send({error: 'Unable to sort after align'})
+        throw new StatusError('Unable to sort after align', 500)
       } else {
         await alignSort()
         await run(true)
       }
     } else {
       await db.query('update tasks set sort=?,col=?,updated_at=? where id=?', [sort, req.body.col, dt, task.id])
-      const wssMessage = JSON.stringify({type: 'dt', dt})
-      wss.clients.forEach((ws) => ws.send(wssMessage))
+      wssSendDt(dt)
       res.send()
     }
   }
@@ -163,7 +167,129 @@ app.patch('/tasks/:id/move', async (req, res) => {
     await run()
   } catch (error) {
     console.error(error)
-    res.status(500).send({error: error.message})
+    res.status(error.status || 500).send({error: error.message})
+  }
+})
+
+app.patch('/tasks/:id/lock', async (req, res) => {
+  try {
+    const task = await checkIfTaskIsEditable(req.params.id, req)
+    console.log('task lock ok', task, req.headers['x-access-token'])
+    const dt = (new Date).getTime()
+    await db.query('update tasks set locked_by=?,locked_at=?,updated_at=? where id=?', [req.headers['x-access-token'], dt, dt, task.id])
+    wssSendDt(dt)
+    res.send()
+  } catch (error) {
+    console.error(error)
+    res.status(error.status || 500).send({error: error.message})
+  }
+})
+
+app.patch('/tasks/:id/unlock', async (req, res) => {
+  try {
+    const [[task]] = await db.query('select * from tasks where id=? and deleted_at=0', [req.params.id])
+    if (task && task.locked_by === req.headers['x-access-token']) {
+      const dt = (new Date).getTime()
+      await db.query('update tasks set locked_by="",locked_at=0,updated_at=? where id=?', [dt, task.id])
+      wssSendDt(dt)
+    }
+    res.send()
+  } catch (error) {
+    console.error(error)
+    res.status(error.status || 500).send({error: error.message})
+  }
+})
+
+app.patch('/tasks/:id/send_unlock_request', async (req, res) => {
+  try {
+    const [[task]] = await db.query('select * from tasks where id=? and deleted_at=0', [req.params.id])
+    if (!task) {
+      throw new StatusError('Task Not Found', 404)
+    }
+    if (!task.locked_by || task.locked_by === req.headers['x-access-token']) {
+      throw new StatusError('The task is not locked', 400)
+    }
+    if (task.locking_switch_requested_by === req.headers['x-access-token']) {
+      throw new StatusError('You have already asked for the edit permission', 400)
+    }
+    const dt = (new Date).getTime()
+    await db.query('update tasks set locking_switch_requested_by=?,locking_switch_requested_at=?,updated_at=? where id=?', [req.headers['x-access-token'], dt, dt, req.params.id])
+    wssSendDt(dt)
+    res.send()
+  } catch (error) {
+    console.error(error)
+    res.status(error.status || 500).send({error: error.message})
+  }
+})
+
+app.patch('/tasks/:id/cancel_unlock_request', async (req, res) => {
+  try {
+    const [[task]] = await db.query('select * from tasks where id=? and deleted_at=0', [req.params.id])
+    if (!task) {
+      throw new StatusError('Task Not Found', 404)
+    }
+    if (task.locking_switch_requested_by === req.headers['x-access-token']) {
+      const dt = (new Date).getTime()
+      await db.query('update tasks set locking_switch_requested_by="",locking_switch_requested_at=0,updated_at=? where id=?', [dt, req.params.id])
+      wssSendDt(dt)
+    }
+    res.send()
+  } catch (error) {
+    console.error(error)
+    res.status(error.status || 500).send({error: error.message})
+  }
+})
+
+app.patch('/tasks/:id/try_unlock', async (req, res) => {
+  try {
+    const [[task]] = await db.query('select * from tasks where id=? and deleted_at=0', [req.params.id])
+    if (!task) {
+      throw new StatusError('Task Not Found', 404)
+    }
+    if (task.locking_switch_requested_by === req.headers['x-access-token']) {
+      const dt = (new Date).getTime()
+      if (dt > task.locking_switch_requested_at + 5000) {
+        await db.query(
+          'update tasks set locking_switch_requested_by="",locking_switch_requested_at=0,locked_by=?,locked_at=?,updated_at=? where id=?',
+          [req.headers['x-access-token'], dt, dt, req.params.id]
+        )
+        wssSendDt(dt)
+      } else {
+        throw new StatusError('You have to wait for 5 seconds before getting the edit permission', 400)
+      }
+    } else {
+      throw new StatusError('Someone else also asked for the edit permission, your request was cancelled', 400)
+    }
+    res.send()
+  } catch (error) {
+    console.error(error)
+    res.status(error.status || 500).send({error: error.message})
+  }
+})
+
+app.patch('/tasks/:id/deny_unlock', async (req, res) => {
+  try {
+    const task = await checkIfTaskIsEditable(req.params.id, req)
+    const dt = (new Date).getTime()
+    await db.query('update tasks set locking_switch_requested_by="",locking_switch_requested_at=0,updated_at=? where id=?', [dt, task.id])
+    wssSendDt(dt)
+    res.send()
+  } catch (error) {
+    console.error(error)
+    res.status(error.status || 500).send({error: error.message})
+  }
+})
+
+app.patch('/tasks/:id/allow_unlock', async (req, res) => {
+  try {
+    const task = await checkIfTaskIsEditable(req.params.id, req)
+    const dt = (new Date).getTime()
+    await db.query('update tasks set locked_by=?,locked_at=?,locking_switch_requested_by="",locking_switch_requested_at=0,updated_at=? where id=?', [dt.locking_switch_requested_by, dt, dt, task.id])
+    wssSendDt(dt)
+    res.send()
+  } catch (error) {
+    console.error(error)
+    res.status(error.status || 500).send({error: error.message})
   }
 })
 
