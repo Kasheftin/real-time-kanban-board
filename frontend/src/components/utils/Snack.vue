@@ -72,7 +72,7 @@ export default {
 }
 </script>
 
-<style lang="scss">
+<style>
 .sis-snack__container {
   position: fixed;
   bottom: 0;

@@ -363,7 +363,7 @@ export default {
 }
 </script>
 
-<style lang="scss">
+<style>
 .card-column {
   position: relative;
   display: flex;
