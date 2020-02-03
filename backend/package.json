@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "PORT=46991 node index.js",
-    "dev": "nodemon index.js"
+    "start": "PORT=46991 SOCKET_PORT=46992 node index.js",
+    "dev": "PORT=46991 SOCKET_PORT=46992 nodemon index.js"
   },
   "author": "kasheftin",
   "license": "ISC",
@@ -13,6 +13,7 @@
     "body-parser": "^1.19.0",
     "express": "^4.17.1",
     "mysql2": "^2.1.0",
-    "socket.io": "^2.3.0"
+    "socket.io": "^2.3.0",
+    "ws": "^7.2.1"
   }
 }
