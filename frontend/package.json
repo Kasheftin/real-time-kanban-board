@@ -8,31 +8,35 @@
     "lint": "vue-cli-service lint"
   },
   "dependencies": {
-    "axios": "^0.19.2",
-    "core-js": "^3.4.4",
-    "lodash": "^4.17.15",
-    "moment": "^2.24.0",
-    "sortablejs": "^1.10.2",
+    "axios": "^0.24.0",
+    "core-js": "^3.6.5",
+    "lodash": "^4.17.21",
+    "sortable": "^2.0.0",
+    "sortablejs": "^1.14.0",
     "velocity-animate": "^1.5.2",
-    "vue": "^2.6.10",
-    "vue-sweetalert2": "^3.0.1",
-    "vuetify": "^2.1.0",
-    "vuex": "^3.1.2"
+    "vue": "^2.6.11",
+    "vue-sweetalert2": "^5.0.2",
+    "vuetify": "^2.4.0",
+    "vuex": "^3.4.0"
   },
   "devDependencies": {
-    "@vue/cli-plugin-babel": "^4.1.0",
-    "@vue/cli-plugin-eslint": "^4.1.0",
-    "@vue/cli-plugin-vuex": "^4.1.0",
-    "@vue/cli-service": "^4.1.0",
-    "@vue/eslint-config-standard": "^4.0.0",
-    "babel-eslint": "^10.0.3",
-    "eslint": "^5.16.0",
-    "eslint-plugin-vue": "^5.0.0",
-    "sass": "^1.19.0",
-    "sass-loader": "^8.0.0",
-    "vue-cli-plugin-vuetify": "^2.0.3",
-    "vue-template-compiler": "^2.6.10",
-    "vuetify-loader": "^1.3.0"
+    "@vue/cli-plugin-babel": "~4.5.0",
+    "@vue/cli-plugin-eslint": "~4.5.0",
+    "@vue/cli-plugin-vuex": "~4.5.0",
+    "@vue/cli-service": "~4.5.0",
+    "@vue/eslint-config-standard": "^5.1.2",
+    "babel-eslint": "^10.1.0",
+    "eslint": "^6.7.2",
+    "eslint-plugin-import": "^2.20.2",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^4.2.1",
+    "eslint-plugin-standard": "^4.0.0",
+    "eslint-plugin-vue": "^6.2.2",
+    "sass": "~1.32.0",
+    "sass-loader": "^10.0.0",
+    "vue-cli-plugin-vuetify": "~2.4.3",
+    "vue-template-compiler": "^2.6.11",
+    "vuetify-loader": "^1.7.0"
   },
   "eslintConfig": {
     "root": true,
@@ -41,21 +45,22 @@
     },
     "extends": [
       "plugin:vue/essential",
-      "eslint:recommended"
+      "@vue/standard"
     ],
-    "rules": {
-      "no-console": 0
-    },
     "parserOptions": {
       "parser": "babel-eslint"
     },
-    "globals": {
-      "_": true,
-      "moment": true
+    "rules": {
+      "object-curly-spacing": [
+        "error",
+        "never"
+      ],
+      "no-prototype-builtins": "off"
     }
   },
   "browserslist": [
     "> 1%",
-    "last 2 versions"
+    "last 2 versions",
+    "not dead"
   ]
 }

@@ -26,6 +26,7 @@
 </template>
 
 <script>
+import _ from 'lodash'
 import AnimHeight from './AnimHeight'
 
 export default {

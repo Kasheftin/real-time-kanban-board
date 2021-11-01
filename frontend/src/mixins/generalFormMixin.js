@@ -1,4 +1,4 @@
-import * as formInstanceMethods from '~/utils/form'
+import * as formInstanceMethods from '@/utils/form'
 
 export default {
   data () {

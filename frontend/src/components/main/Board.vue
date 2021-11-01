@@ -107,8 +107,9 @@
 
 <script>
 import axios from 'axios'
+import _ from 'lodash'
 import Sortable from 'sortablejs'
-import generalFormMixin from '~/mixins/generalFormMixin'
+import generalFormMixin from '@/mixins/generalFormMixin'
 
 export default {
   mixins: [generalFormMixin],

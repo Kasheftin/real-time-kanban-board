@@ -1,4 +1,5 @@
 import Vue from 'vue'
+import _ from 'lodash'
 
 const snack = function (data) {
   if (data === 'hide') {

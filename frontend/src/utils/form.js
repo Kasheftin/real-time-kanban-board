@@ -1,3 +1,5 @@
+import _ from 'lodash'
+
 export function getId (instance, checkWithin) {
   if (_.isObject(instance) && !_.isArray(instance)) {
     if (!checkWithin) checkWithin = ['id', 'code']

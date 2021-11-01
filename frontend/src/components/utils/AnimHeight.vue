@@ -5,7 +5,7 @@
 </template>
 
 <script>
-import animHeight from '~/utils/anim_height'
+import animHeight from '@/utils/anim_height'
 
 export default {
   mixins: [animHeight],
